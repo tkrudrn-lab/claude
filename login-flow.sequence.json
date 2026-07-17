@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Login Flow",
+    "subtitle": "JWT validation with Redis session lookup and PostgreSQL fallback",
+    "output": "login-flow.html",
+    "viewBox": [720, 760]
+  },
+  "participants": [
+    { "id": "browser", "type": "external", "label": "Browser", "sublabel": "user session" },
+    { "id": "web", "type": "frontend", "label": "Web App", "sublabel": "login page" },
+    { "id": "api", "type": "backend", "label": "API", "sublabel": "auth handler" },
+    { "id": "jwt", "type": "security", "label": "JWT", "sublabel": "token verify" },
+    { "id": "redis", "type": "database", "label": "Redis", "sublabel": "session cache" },
+    { "id": "pg", "type": "database", "label": "PostgreSQL", "sublabel": "source of truth" }
+  ],
+  "segments": [
+    { "from": 150, "to": 240, "label": "01 / LOGIN" },
+    { "from": 255, "to": 320, "label": "02 / JWT VALIDATE" },
+    { "from": 335, "to": 550, "label": "03 / SESSION LOOKUP" },
+    { "from": 565, "to": 670, "label": "04 / RESPONSE" }
+  ],
+  "messages": [
+    { "from": "browser", "to": "web", "y": 185, "label": "POST /login", "variant": "emphasis" },
+    { "from": "web", "to": "api", "y": 225, "label": "POST /api/session", "variant": "emphasis" },
+    { "from": "api", "to": "jwt", "y": 270, "label": "validate JWT", "variant": "security" },
+    { "from": "jwt", "to": "api", "y": 305, "label": "claims ok", "variant": "return" },
+    { "from": "api", "to": "redis", "y": 355, "label": "GET sess:{sid}", "variant": "emphasis" },
+    { "from": "redis", "to": "api", "y": 392, "label": "cache miss", "variant": "return" },
+    { "from": "api", "to": "pg", "y": 440, "label": "SELECT session", "variant": "dashed" },
+    { "from": "pg", "to": "api", "y": 485, "label": "session row", "variant": "return" },
+    { "from": "api", "to": "redis", "y": 530, "label": "SETEX backfill", "variant": "dashed" },
+    { "from": "api", "to": "web", "y": 600, "label": "200 + session", "variant": "return" },
+    { "from": "web", "to": "browser", "y": 640, "label": "logged in", "variant": "return" }
+  ],
+  "activations": [
+    { "participant": "web", "from": 218, "to": 648, "type": "frontend" },
+    { "participant": "api", "from": 225, "to": 610, "type": "backend" },
+    { "participant": "jwt", "from": 265, "to": 310, "type": "security" },
+    { "participant": "redis", "from": 350, "to": 398, "type": "database" },
+    { "participant": "pg", "from": 435, "to": 492, "type": "database" }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "Primary Path",
+      "items": [
+        "Browser -> Web App -> API carries the login request",
+        "JWT is validated before any session lookup",
+        "A Redis hit would return immediately after 03"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Cache Miss (secondary)",
+      "items": [
+        "PostgreSQL fallback is dashed - it only runs on a miss",
+        "SETEX backfill keeps the next lookup hot",
+        "Fallback adds one round trip, not a redesign"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Session Store",
+      "items": [
+        "Redis keys sessions as sess:{sid} with TTL",
+        "PostgreSQL sessions table is the source of truth",
+        "Cache and store never disagree for longer than the TTL"
+      ]
+    }
+  ]
+}

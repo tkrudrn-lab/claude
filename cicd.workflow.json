@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "CI/CD Pipeline",
+    "subtitle": "Pull request to production with a secondary rollback path",
+    "output": "cicd.html"
+  },
+  "lanes": [
+    { "id": "source", "label": "Source" },
+    { "id": "ci", "label": "CI Pipeline" },
+    { "id": "gate", "label": "Approval Gate" },
+    { "id": "staging", "label": "Staging" },
+    { "id": "prod", "label": "Production" },
+    { "id": "rollback", "label": "Rollback", "variant": "exception" }
+  ],
+  "phases": [
+    { "id": "integrate", "label": "Integrate", "fromCol": 0, "toCol": 1 },
+    { "id": "approve", "label": "Gate", "fromCol": 2, "toCol": 2, "variant": "emphasis" },
+    { "id": "release", "label": "Release", "fromCol": 3, "toCol": 5, "variant": "dashed" }
+  ],
+  "groups": [
+    { "id": "recovery", "label": "Failure recovery", "lane": "rollback", "fromCol": 5, "toCol": 5, "variant": "security" }
+  ],
+  "mainPath": ["pr", "tests", "approval", "build", "staging", "smoke", "production"],
+  "nodes": [
+    { "id": "pr", "lane": "source", "col": 0, "type": "frontend", "label": "Pull Request", "sublabel": "feature branch" },
+    { "id": "tests", "lane": "ci", "col": 1, "type": "backend", "label": "Tests", "sublabel": "unit + integration", "tag": "blocking" },
+    { "id": "approval", "lane": "gate", "col": 2, "type": "security", "label": "Approval", "sublabel": "reviewer sign-off", "tag": "manual gate" },
+    { "id": "build", "lane": "ci", "col": 3, "type": "backend", "label": "Build Image", "sublabel": "docker build + push" },
+    { "id": "staging", "lane": "staging", "col": 4, "type": "cloud", "label": "Deploy Staging", "sublabel": "k8s namespace" },
+    { "id": "smoke", "lane": "staging", "col": 5, "type": "backend", "label": "Smoke Test", "sublabel": "health + key paths", "tag": "promotion gate" },
+    { "id": "production", "lane": "prod", "col": 5, "type": "cloud", "label": "Deploy Prod", "sublabel": "rolling update" },
+    { "id": "rollback", "lane": "rollback", "col": 5, "type": "security", "label": "Rollback", "sublabel": "redeploy last good" }
+  ],
+  "edges": [
+    { "from": "pr", "to": "tests", "variant": "default", "fromSide": "bottom", "toSide": "top", "route": "drop" },
+    { "from": "tests", "to": "approval", "variant": "default", "fromSide": "bottom", "toSide": "top", "route": "drop" },
+    { "from": "approval", "to": "build", "label": "approved", "variant": "emphasis", "fromSide": "top", "toSide": "bottom", "route": "drop" },
+    { "from": "build", "to": "staging", "label": "image pushed", "variant": "default", "fromSide": "bottom", "toSide": "top", "route": "drop" },
+    { "from": "staging", "to": "smoke", "variant": "default", "route": "straight" },
+    { "from": "smoke", "to": "production", "label": "smoke pass", "variant": "emphasis", "fromSide": "bottom", "toSide": "top", "route": "drop", "labelDy": 18 },
+    { "from": "production", "to": "rollback", "label": "health fail", "variant": "security", "role": "error", "fromSide": "bottom", "toSide": "top", "route": "drop" },
+    { "from": "rollback", "to": "production", "label": "restore", "variant": "dashed", "role": "branch", "fromSide": "right", "toSide": "right", "route": "outside-right" }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "Main Path",
+      "items": [
+        "PR -> Tests -> Approval -> Build -> Staging -> Smoke -> Prod",
+        "Tests are blocking; nothing builds on red",
+        "Approval is a manual reviewer gate before any image is built"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Release Gates",
+      "items": [
+        "Image is built once, then promoted across environments",
+        "Smoke test in staging gates promotion to production",
+        "Production uses a rolling update for zero-downtime deploys"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Rollback (secondary)",
+      "items": [
+        "A failed production health check triggers rollback",
+        "Rollback redeploys the last known-good image",
+        "Recovery path is isolated in its own exception lane"
+      ]
+    }
+  ]
+}

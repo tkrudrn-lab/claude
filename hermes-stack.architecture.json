@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Hermes Agent Stack",
+    "subtitle": "Runtime architecture installed by install_hermes_full.sh",
+    "output": "hermes-stack.html"
+  },
+  "components": [
+    { "id": "chat", "type": "external", "label": "Chat Platforms", "sublabel": "Telegram / Discord", "pos": [40, 300], "size": [130, 60] },
+    { "id": "webui", "type": "frontend", "label": "Web UI", "sublabel": "hermes-web-ui :8648", "pos": [260, 150], "size": [130, 60] },
+    { "id": "gateway", "type": "backend", "label": "Hermes Gateway", "sublabel": "loopback :8642", "pos": [260, 300], "size": [130, 60] },
+    { "id": "cli", "type": "frontend", "label": "hermes CLI", "sublabel": "terminal TUI", "pos": [480, 150], "size": [140, 60] },
+    { "id": "agent", "type": "backend", "label": "Hermes Agent", "sublabel": "~/.hermes/hermes-agent", "pos": [480, 300], "size": [140, 60], "tag": "skills + memory" },
+    { "id": "modelapi", "type": "external", "label": "Model Provider", "sublabel": "LLM API", "pos": [910, 300], "size": [140, 60] },
+    { "id": "memplugin", "type": "backend", "label": "Memory Plugin", "sublabel": "memory_tencentdb", "pos": [480, 440], "size": [140, 60], "tag": "symlinked" },
+    { "id": "memgw", "type": "backend", "label": "Memory Gateway", "sublabel": "tsx server :8420", "pos": [700, 440], "size": [130, 60] },
+    { "id": "datastore", "type": "database", "label": "memory-tdai", "sublabel": "records · scenes", "pos": [700, 580], "size": [130, 60] },
+    { "id": "env", "type": "security", "label": ".env secrets", "sublabel": "~/.hermes/.env", "pos": [260, 580], "size": [130, 60], "tag": "API keys" },
+    { "id": "dsapi", "type": "external", "label": "DeepSeek API", "sublabel": "memory extraction", "pos": [910, 440], "size": [140, 60] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Local machine — macOS / Ubuntu / WSL2", "wraps": ["webui", "gateway", "cli", "agent", "memplugin", "memgw", "datastore", "env"] },
+    { "kind": "security-group", "label": "127.0.0.1 only :8420", "wraps": ["memplugin", "memgw", "datastore"] }
+  ],
+  "connections": [
+    { "from": "chat", "to": "gateway", "label": "messages", "variant": "emphasis" },
+    { "from": "gateway", "to": "agent", "variant": "emphasis" },
+    { "from": "agent", "to": "modelapi", "label": "chat completion", "variant": "emphasis" },
+    { "from": "webui", "to": "gateway", "fromSide": "bottom", "toSide": "top" },
+    { "from": "cli", "to": "agent", "fromSide": "bottom", "toSide": "top" },
+    { "from": "agent", "to": "memplugin", "label": "recall / store", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "labelDy": 58 },
+    { "from": "memplugin", "to": "memgw" },
+    { "from": "memgw", "to": "datastore", "fromSide": "bottom", "toSide": "top" },
+    { "from": "memgw", "to": "dsapi", "label": "LLM extract", "variant": "dashed" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Entry Points", "items": ["hermes CLI — interactive terminal chat", "Web UI on :8648 (npm global)", "Telegram / Discord bots via Gateway :8642"] },
+    { "dot": "emerald", "title": "Runtime", "items": ["Agent core with skills + memory toolsets", "Memory plugin symlinked into ~/.hermes plugins", "Gateway spawns tsx memory server on demand"] },
+    { "dot": "rose", "title": "Trust Boundaries", "items": ["Memory gateway binds 127.0.0.1 only", "All keys live in ~/.hermes/.env", "Egress: model API, DeepSeek, chat platforms"] }
+  ]
+}
