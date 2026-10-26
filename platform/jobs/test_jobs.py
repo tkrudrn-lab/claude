@@ -186,8 +186,10 @@ class TestCatalog(EnvFixture):
         self.assertTrue(r["taken"])
 
     def test_main_missing_folder(self):
-        self.assertEqual(self.catalog.main([str(self.tmp / "없는 폴더")]), 1)
-        self.assertEqual(self.catalog.main([str(self.tmp / "없는 폴더"), str(self.folder)]), 0)
+        from contextlib import redirect_stdout
+        with redirect_stdout(io.StringIO()):  # main() 의 요약 출력이 테스트 로그를 더럽히지 않게
+            self.assertEqual(self.catalog.main([str(self.tmp / "없는 폴더")]), 1)
+            self.assertEqual(self.catalog.main([str(self.tmp / "없는 폴더"), str(self.folder)]), 0)
 
 
 if __name__ == "__main__":
