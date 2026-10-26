@@ -118,5 +118,77 @@ class TestNotify(EnvFixture):
         self.assertEqual(len((self.tmp / "logs" / "inbox.log").read_text(encoding="utf-8").splitlines()), 1)
 
 
+import csv, shutil
+
+
+def _png(path, size=(4, 3), exif_dt=None):
+    from PIL import Image
+    img = Image.new("RGB", size, "green")
+    if exif_dt:
+        ex = img.getexif(); ex.get_ifd(0x8769)[0x9003] = exif_dt
+        img.save(path, exif=ex.tobytes())
+    else:
+        img.save(path)
+
+
+def _rows(folder):
+    with open(folder / "_catalog.csv", encoding="utf-8-sig", newline="") as f:
+        return {r["rel_path"]: r for r in csv.DictReader(f)}
+
+
+class TestCatalog(EnvFixture):
+    def setUp(self):
+        super().setUp()
+        import catalog; self.catalog = catalog
+        self.folder = self.tmp / "비바 사진"
+        (self.folder / "하위 폴더").mkdir(parents=True)
+        (self.folder / "_mosaic").mkdir()
+        (self.folder / "툴 사본").mkdir(); (self.folder / "툴 사본" / ".nocatalog").touch()
+        _png(self.folder / "a.png", exif_dt="2026:10:17 14:03:22")
+        _png(self.folder / "b.png")
+        _png(self.folder / "하위 폴더" / "ㄱ.jpg")
+        _png(self.folder / "_mosaic" / "skip.png")
+        _png(self.folder / "툴 사본" / "skip2.png")
+        (self.folder / "메모.txt").write_text("x")
+
+    def test_update_adds_media_only_with_exif_and_dims(self):
+        self.assertEqual(self.catalog.update_catalog(self.folder), (3, 0))
+        rows = _rows(self.folder)
+        self.assertEqual(set(rows), {"a.png", "b.png", "하위 폴더/ㄱ.jpg"})
+        self.assertEqual(rows["a.png"]["taken"], "2026-10-17 14:03:22")
+        self.assertEqual((rows["a.png"]["width"], rows["a.png"]["height"]), ("4", "3"))
+        self.assertRegex(rows["b.png"]["taken"], r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")  # mtime 폴백
+
+    def test_rerun_keeps_note_and_drops_removed(self):
+        self.catalog.update_catalog(self.folder)
+        rows = _rows(self.folder); rows["a.png"]["note"] = "루비 모프 성체"
+        with open(self.folder / "_catalog.csv", "w", encoding="utf-8-sig", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=self.catalog.COLUMNS); w.writeheader(); w.writerows(rows.values())
+        self.assertEqual(self.catalog.update_catalog(self.folder), (0, 0))
+        self.assertEqual(_rows(self.folder)["a.png"]["note"], "루비 모프 성체")
+        (self.folder / "b.png").unlink()
+        self.assertEqual(self.catalog.update_catalog(self.folder), (0, 1))
+        self.assertNotIn("b.png", _rows(self.folder))
+
+    def test_corrupt_image_row_kept(self):
+        (self.folder / "bad.jpg").write_bytes(b"not an image")
+        added, _ = self.catalog.update_catalog(self.folder)
+        self.assertEqual(added, 4)
+        self.assertEqual(_rows(self.folder)["bad.jpg"]["width"], "")
+
+    def test_video_without_ffprobe_gets_empty_dims(self):
+        (self.folder / "v.mp4").write_bytes(b"0" * 100)
+        self.addCleanup(setattr, self.catalog.shutil, "which", shutil.which)
+        self.catalog.shutil.which = lambda name: None
+        self.catalog.update_catalog(self.folder)
+        r = _rows(self.folder)["v.mp4"]
+        self.assertEqual((r["duration_s"], r["width"]), ("", ""))
+        self.assertTrue(r["taken"])
+
+    def test_main_missing_folder(self):
+        self.assertEqual(self.catalog.main([str(self.tmp / "없는 폴더")]), 1)
+        self.assertEqual(self.catalog.main([str(self.tmp / "없는 폴더"), str(self.folder)]), 0)
+
+
 if __name__ == "__main__":
     unittest.main()
