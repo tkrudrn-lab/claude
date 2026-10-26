@@ -70,7 +70,9 @@ def _probe_video(path: Path, out: dict) -> None:
         out["duration_s"] = f"{float(fmt['duration']):.1f}"
     ct = fmt.get("tags", {}).get("creation_time")
     if ct:
-        out["taken"] = ct.replace("T", " ")[:19]
+        dt = datetime.fromisoformat(ct.replace("Z", "+00:00"))
+        if dt.year > 1980:  # 1904/1970 epoch 더미는 무시 → mtime 폴백
+            out["taken"] = dt.astimezone().strftime(TS)  # UTC → 로컬. JPG EXIF(로컬)와 맞춘다
 
 
 def probe(path: Path) -> dict[str, str]:
@@ -116,22 +118,40 @@ def update_catalog(folder: Path) -> tuple[int, int]:
     return len(added), len(removed)
 
 
+def _missing_deps() -> list[str]:
+    missing = []
+    if not shutil.which("ffprobe"):
+        missing.append("ffprobe 없음")
+    try:
+        import PIL  # noqa: F401
+    except ImportError:
+        missing.append("Pillow 없음")
+    return missing
+
+
 def main(argv: list[str]) -> int:
     do_notify = "--notify" in argv
     folders = [Path(a) for a in argv if a != "--notify"]
     if not folders:
-        folders = [Path(p) for p in load_env("paths").get("HERMES_CATALOG_DIRS", "").split(";") if p]
+        folders = [Path(p.strip()).expanduser()
+                   for p in load_env("paths").get("HERMES_CATALOG_DIRS", "").split(";") if p.strip()]
     lines, processed = [], 0
     for folder in folders:
-        if not folder.is_dir():
-            lines.append(f"{folder.name} 없음")
-        else:
-            added, removed = update_catalog(folder)
-            with (folder / CATALOG_NAME).open(encoding="utf-8-sig", newline="") as f:
-                total = sum(1 for _ in f) - 1
-            lines.append(f"{folder.name} +{added} −{removed} ({total})")
-            processed += 1
+        try:
+            if not folder.is_dir():
+                lines.append(f"{folder.name} 없음")
+            else:
+                added, removed = update_catalog(folder)
+                with (folder / CATALOG_NAME).open(encoding="utf-8-sig", newline="") as f:
+                    total = sum(1 for _ in f) - 1
+                lines.append(f"{folder.name} +{added} −{removed} ({total})")
+                processed += 1
+        except Exception as e:  # 폴더 하나의 사고(잠긴 CSV·읽기 전용 마운트)가 나머지와 알림을 죽이면 안 된다
+            lines.append(f"{folder.name} 실패 — {e}")
         print(lines[-1])
+    for line in _missing_deps():  # 없으면 필드가 조용히·영구히 빈다 — 알림에 드러낸다
+        lines.append(line)
+        print(line)
     if do_notify:
         import notify
         notify.send("카탈로그 · " + " · ".join(lines), job="catalog")
@@ -139,4 +159,6 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
+    for s in (sys.stdout, sys.stderr):  # 윈도우 파이프는 cp949 — '−' 에서 죽지 않게
+        s.reconfigure(encoding="utf-8", errors="replace")
     sys.exit(main(sys.argv[1:]))

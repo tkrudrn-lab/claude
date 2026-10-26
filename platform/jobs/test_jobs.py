@@ -43,14 +43,21 @@ from contextlib import contextmanager
 
 
 class FakeTelegram:
-    """urlopen 대역. calls 에 (method, body_bytes) 누적."""
-    def __init__(self, ok=True, raise_url_error=False):
+    """urlopen 대역. calls 에 (method, body_bytes) 누적. fail_methods 는 HTTP 400 으로 거절."""
+    def __init__(self, ok=True, raise_url_error=False, fail_methods=(), raise_exc=None):
         self.ok, self.raise_url_error, self.calls = ok, raise_url_error, []
+        self.fail_methods, self.raise_exc = set(fail_methods), raise_exc
 
     def __call__(self, req, timeout=None):
+        if self.raise_exc:
+            raise self.raise_exc
         if self.raise_url_error:
             raise urllib.error.URLError("no network")
-        self.calls.append((req.full_url.rsplit("/", 1)[1], req.data or b""))
+        method = req.full_url.rsplit("/", 1)[1]
+        self.calls.append((method, req.data or b""))
+        if method in self.fail_methods:
+            raise urllib.error.HTTPError(req.full_url, 400, "Bad Request", None,
+                                         io.BytesIO(b'{"ok":false,"description":"PHOTO_INVALID_DIMENSIONS"}'))
         body = json.dumps({"ok": self.ok, "description": "chat not found", "result": {}}).encode()
 
         @contextmanager
@@ -117,8 +124,27 @@ class TestNotify(EnvFixture):
         self.assertFalse(self.notify.send("x", job="inbox"))
         self.assertEqual(len((self.tmp / "logs" / "inbox.log").read_text(encoding="utf-8").splitlines()), 1)
 
+    # --- 리뷰 Important 2: 첨부가 없거나 거절돼도 텍스트는 간다, 어떤 예외도 밖으로 안 나간다 ---
+    def test_missing_file_falls_back_to_text(self):
+        import urllib.parse
+        self.assertTrue(self.notify.send("썸네일", file=self.tmp / "없는.jpg", job="blog"))
+        self.assertEqual(self._method(), "sendMessage")
+        self.assertIn("없는.jpg", urllib.parse.parse_qs(self.fake.calls[-1][1].decode())["text"][0])
 
-import csv, shutil
+    def test_attachment_rejected_falls_back_to_text(self):
+        self.notify.urlopen = self.fake = FakeTelegram(fail_methods={"sendPhoto"})
+        p = self.tmp / "띠.png"; p.write_bytes(b"\x89PNG" + b"0" * 10)
+        self.assertTrue(self.notify.send("서천 스틸", file=p))
+        self.assertEqual([m for m, _ in self.fake.calls], ["sendPhoto", "sendMessage"])
+
+    def test_non_urlerror_exception_returns_false_and_logs(self):
+        self.notify.urlopen = FakeTelegram(raise_exc=TimeoutError("timed out"))
+        self.assertFalse(self.notify.send("x", job="inbox"))
+        self.assertEqual(len((self.tmp / "logs" / "inbox.log").read_text(encoding="utf-8").splitlines()), 1)
+
+
+import csv, shutil, subprocess, sys
+from contextlib import redirect_stdout
 
 
 def _png(path, size=(4, 3), exif_dt=None):
@@ -186,10 +212,73 @@ class TestCatalog(EnvFixture):
         self.assertTrue(r["taken"])
 
     def test_main_missing_folder(self):
-        from contextlib import redirect_stdout
         with redirect_stdout(io.StringIO()):  # main() 의 요약 출력이 테스트 로그를 더럽히지 않게
             self.assertEqual(self.catalog.main([str(self.tmp / "없는 폴더")]), 1)
             self.assertEqual(self.catalog.main([str(self.tmp / "없는 폴더"), str(self.folder)]), 0)
+
+    # --- 리뷰 C1: 윈도우에서 stdout 이 파이프면 cp949 라 '−' 에서 죽는다 ---
+    def test_cli_survives_piped_stdout_without_utf8_env(self):
+        env = {k: v for k, v in os.environ.items() if k not in ("PYTHONIOENCODING", "PYTHONUTF8")}
+        r = subprocess.run([sys.executable, "catalog.py", str(self.folder)], capture_output=True,
+                           env=env, cwd=Path(__file__).parent)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    # --- 리뷰 Important 1: 폴더 하나의 예외가 나머지 폴더와 알림을 죽이면 안 된다 ---
+    def test_main_reports_folder_failure_and_still_notifies(self):
+        import notify
+        sent = []
+        self.addCleanup(setattr, notify, "send", notify.send)
+        notify.send = lambda text, file=None, job="manual": sent.append((text, job)) or True
+        bad = self.tmp / "잠긴 폴더"; bad.mkdir()
+        real = self.catalog.update_catalog
+        self.addCleanup(setattr, self.catalog, "update_catalog", real)
+
+        def boom(folder):
+            if Path(folder) == bad:
+                raise PermissionError("locked")
+            return real(folder)
+        self.catalog.update_catalog = boom
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(self.catalog.main([str(bad), str(self.folder), "--notify"]), 0)
+        self.assertEqual(len(sent), 1)
+        self.assertIn("잠긴 폴더 실패", sent[0][0])
+        self.assertEqual(sent[0][1], "catalog")
+
+    # --- 리뷰 Important 3: HERMES_CATALOG_DIRS 의 두 번째 경로부터 ~ 가 안 풀린다 ---
+    def test_catalog_dirs_tilde_expands_each_path(self):
+        for k in ("USERPROFILE", "HOME"):
+            old = os.environ.get(k)
+            self.addCleanup(lambda k=k, old=old: os.environ.__setitem__(k, old) if old is not None else os.environ.pop(k, None))
+            os.environ[k] = str(self.tmp)
+        (self.tmp / "cfg" / "paths.env").write_text(
+            f"HERMES_LOGS={self.tmp / 'logs'}\nHERMES_CATALOG_DIRS=~/없는; ~/비바 사진\n", encoding="utf-8")
+        with redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(self.catalog.main([]), 0)
+        self.assertIn("비바 사진 +3", out.getvalue())
+
+    # --- 리뷰 Important 4: ffprobe 가 없으면 조용히 영구 빈칸 — 알림 줄에 경고 ---
+    def test_main_warns_when_ffprobe_missing(self):
+        self.addCleanup(setattr, self.catalog.shutil, "which", shutil.which)
+        self.catalog.shutil.which = lambda name: None
+        with redirect_stdout(io.StringIO()) as out:
+            self.catalog.main([str(self.folder)])
+        self.assertIn("ffprobe 없음", out.getvalue())
+
+    # --- 리뷰 Important 5: 영상 taken 은 로컬 시각, epoch 값은 무시 ---
+    def test_video_taken_is_local_time_and_epoch_ignored(self):
+        from datetime import datetime, timezone
+        v = self.folder / "v.mov"; v.write_bytes(b"0" * 10)
+        self.addCleanup(setattr, self.catalog.shutil, "which", shutil.which)
+        self.catalog.shutil.which = lambda name: "ffprobe"
+        self.addCleanup(setattr, self.catalog.subprocess, "run", subprocess.run)
+        canned = {"streams": [{"width": 1920, "height": 1080, "side_data_list": [{"rotation": -90}]}],
+                  "format": {"duration": "7.56", "tags": {"creation_time": "2025-10-11T19:05:21.000000Z"}}}
+        self.catalog.subprocess.run = lambda *a, **k: subprocess.CompletedProcess(a, 0, json.dumps(canned), "")
+        r = self.catalog.probe(v)
+        expect = datetime(2025, 10, 11, 19, 5, 21, tzinfo=timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M:%S")
+        self.assertEqual((r["taken"], r["duration_s"], r["width"], r["height"]), (expect, "7.6", "1080", "1920"))
+        canned["format"]["tags"]["creation_time"] = "1904-01-01T00:00:00.000000Z"
+        self.assertRegex(self.catalog.probe(v)["taken"], r"^20\d\d-")  # mtime 폴백
 
 
 if __name__ == "__main__":

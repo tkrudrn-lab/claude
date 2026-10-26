@@ -1,7 +1,9 @@
-"""텔레그램 알림 — 모든 잡의 마지막 단계. 실패해도 로그 줄은 남는다.
+"""텔레그램 알림 — 모든 잡의 마지막 단계. 실패해도 로그 줄은 남고, 어떤 예외도 밖으로 나가지 않는다.
 
     python notify.py --job <잡> "<한 줄>" [--file 첨부]
     python notify.py --setup          # 봇에 메시지 보낸 뒤 chat_id 찾기
+
+첨부가 없거나·크거나·텔레그램이 거절하면 텍스트 + 경로로라도 보낸다 (하트비트 우선).
 """
 import json
 import mimetypes
@@ -44,42 +46,54 @@ def _call(token: str, method: str, data: bytes, content_type: str) -> dict:
         return json.loads(resp.read().decode())
 
 
-def send(text: str, file: "Path | str | None" = None, job: str = "manual") -> bool:
-    log_line(job, text.splitlines()[0] if text else "")
+def _ok(token: str, method: str, data: bytes, content_type: str) -> bool:
     try:
-        tg = load_env("telegram")
-        token, chat_id = tg["TELEGRAM_BOT_TOKEN"], tg["TELEGRAM_CHAT_ID"]
-    except (FileNotFoundError, KeyError) as e:
-        print(f"notify: 설정 없음 — {e}", file=sys.stderr)
-        return False
-
-    path = Path(file) if file else None
-    if path and path.stat().st_size > MAX_FILE_BYTES:
-        text, path = f"{text}\n파일: {path}", None
-
-    if path is None:
-        method, field = "sendMessage", None
-        data = urllib.parse.urlencode({"chat_id": chat_id, "text": text[:MAX_TEXT]}).encode()
-        ctype = "application/x-www-form-urlencoded"
-    else:
-        ext = path.suffix.lower()
-        if ext in PHOTO_EXT and path.stat().st_size <= MAX_PHOTO_BYTES:
-            method, field = "sendPhoto", "photo"
-        elif ext in VIDEO_EXT:
-            method, field = "sendVideo", "video"
-        else:
-            method, field = "sendDocument", "document"
-        data, ctype = _multipart({"chat_id": chat_id, "caption": text[:MAX_CAPTION]}, field, path)
-
-    try:
-        res = _call(token, method, data, ctype)
-    except urllib.error.URLError as e:  # HTTPError 포함
+        res = _call(token, method, data, content_type)
+    except OSError as e:  # URLError·HTTPError·TimeoutError·ConnectionResetError 전부
         print(f"notify: {method} 실패 — {e}", file=sys.stderr)
         return False
     if not res.get("ok"):
         print(f"notify: {method} 실패 — {res.get('description')}", file=sys.stderr)
         return False
     return True
+
+
+def _text_with_path(text: str, path: Path) -> str:
+    tail = f"\n파일: {path}"
+    return text[:MAX_TEXT - len(tail)] + tail
+
+
+def _send(text: str, file: "Path | str | None") -> bool:
+    tg = load_env("telegram")
+    token, chat_id = tg["TELEGRAM_BOT_TOKEN"], tg["TELEGRAM_CHAT_ID"]
+    path = Path(file) if file else None
+    if path is not None:
+        if path.is_file() and path.stat().st_size <= MAX_FILE_BYTES:
+            ext = path.suffix.lower()
+            if ext in PHOTO_EXT and path.stat().st_size <= MAX_PHOTO_BYTES:
+                method, field = "sendPhoto", "photo"
+            elif ext in VIDEO_EXT:
+                method, field = "sendVideo", "video"
+            else:
+                method, field = "sendDocument", "document"
+            data, ctype = _multipart({"chat_id": chat_id, "caption": text[:MAX_CAPTION]}, field, path)
+            if _ok(token, method, data, ctype):
+                return True
+        text = _text_with_path(text, path)  # 없거나·크거나·거절 → 텍스트라도 간다
+    data = urllib.parse.urlencode({"chat_id": chat_id, "text": text[:MAX_TEXT]}).encode()
+    return _ok(token, "sendMessage", data, "application/x-www-form-urlencoded")
+
+
+def send(text: str, file: "Path | str | None" = None, job: str = "manual") -> bool:
+    try:
+        log_line(job, text.splitlines()[0] if text else "")
+    except Exception as e:
+        print(f"notify: 로그 실패 — {e}", file=sys.stderr)
+    try:
+        return _send(text, file)
+    except Exception as e:  # 설정 없음·인코딩·그 외 무엇이든 — 호출자를 죽이지 않는다
+        print(f"notify: 실패 — {e!r}", file=sys.stderr)
+        return False
 
 
 def setup() -> int:
@@ -119,4 +133,6 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
+    for s in (sys.stdout, sys.stderr):  # 윈도우 파이프는 cp949 — '−'·'—' 에서 죽지 않게
+        s.reconfigure(encoding="utf-8", errors="replace")
     sys.exit(main(sys.argv[1:]))
