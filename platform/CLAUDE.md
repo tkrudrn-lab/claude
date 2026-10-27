@@ -18,7 +18,7 @@
 | 자산 | 어디 |
 |---|---|
 | 다이어그램 3쌍 (`.json` 소스 + `.html` 렌더) — 아키텍처 / CI-CD / 로그인 시퀀스 | 저장소 루트 → [STACK.md](../STACK.md) |
-| 설치 스크립트 `install_hermes_full.sh` | 저장소 루트 |
+| 설치 스크립트 `install_hermes_full.sh` | 저장소 루트 — **안 씀**(2026-10-27 결정: Hermes Agent는 공식 설치기 + 공식 메모리, [맥_세팅_v01.md](맥_세팅_v01.md) 10절). 서드파티 TencentDB 메모리·web-ui 구성의 기록용 |
 | 컴포넌트 노트 21개 (Gateway / Agent / CLI / Memory System / Web UI) | `hermes-vault/` → [VAULT.md](../VAULT.md) |
 
 다이어그램은 HTML을 직접 고치지 않는다. JSON을 고치고 다시 렌더한다.
