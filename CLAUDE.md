@@ -18,7 +18,7 @@ AI 미디어아트 납품, 파충류샵 운영, 수입 무역을 혼자 굴리�
 
 | 영역 | 인덱스 | 설명 |
 |---|---|---|
-| platform | [platform/CLAUDE.md](platform/CLAUDE.md) | 6개 도메인이 공유하는 인프라. **팀이 아니다** · **자동화 설계 v01 승인**(2026-10-25, 맥스튜디오 본진) · 0a 공용 뼈대 코드 완료(`platform/jobs/`, 2026-10-26) · 다음 1 블로그 |
+| platform | [platform/CLAUDE.md](platform/CLAUDE.md) | 6개 도메인이 공유하는 인프라. **팀이 아니다** · **자동화 설계 v01 승인**(2026-10-25, 맥스튜디오 본진) · 0a 공용 뼈대 코드 완료(`platform/jobs/`, 2026-10-26) · **맥 세팅 지시서 [platform/맥_세팅_v01.md](platform/맥_세팅_v01.md)**(2026-10-27) · 다음 1 블로그 |
 | hermes-vault | [VAULT.md](VAULT.md) | 옵시디언 노트 21개 (에이전트 스택·서천) |
 
 ## 매주 만지는 것

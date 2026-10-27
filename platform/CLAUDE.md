@@ -9,6 +9,10 @@
 구현 계획: [0a 공용 뼈대](자동화_계획_0a_공용뼈대.md) (**코드 완료 2026-10-26**, 브랜치 `automation-0a` — 텔레그램 봇 연결만 사용자 대기) → 1 블로그 → 0b 맥 반입 → 2 누리텍 → 3 릴스 → 4 온돌.
 `platform/jobs/` — `common.py`(설정·로그) · `notify.py`(텔레그램) · `catalog.py`(미디어 `_catalog.csv`). 테스트 `cd platform/jobs && python -m unittest test_jobs -v` (15개). 설정은 `~/.config/hermes/paths.env`·`telegram.env` (저장소 밖). 카탈로그 생성됨 — 비바사진 241 · 서천 1,809 (2026-10-26 12시 기준, 서천은 작업 중이라 늘어난다). 영상 촬영시각은 로컬(KST).
 
+## 맥 세팅
+
+**[맥_세팅_v01.md](맥_세팅_v01.md)** (2026-10-27) — 맥스튜디오에 이 파일 하나 주면 0→9 순서로 세팅. 노트북 짐 싸기(PowerShell) · brew · 플러그인·스킬 41+신규(instagram-agent-skill·hypit·ECC·find-skills) · 파일 이사 · MCP 최소 · 0a 뼈대 연결·launchd · 노션 AI setup 항목 · atticus-mac · 검증표. **노션 export zip 대기**(MOTION-KIT·Model Routing·블로그 프롬프트·PDF).
+
 ## 에이전트 스택
 
 | 자산 | 어디 |
