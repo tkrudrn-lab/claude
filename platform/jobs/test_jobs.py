@@ -281,5 +281,98 @@ class TestCatalog(EnvFixture):
         self.assertRegex(self.catalog.probe(v)["taken"], r"^20\d\d-")  # mtime 폴백
 
 
+class FakeOllama:
+    """urlopen 대역. requests 에 (url, body dict) 누적, answers 를 모델 응답 content 로 돌려준다."""
+    def __init__(self, answers=None, raise_exc=None):
+        self.answers, self.raise_exc, self.requests = answers or {}, raise_exc, []
+
+    def __call__(self, req, timeout=None):
+        if self.raise_exc:
+            raise self.raise_exc
+        self.requests.append((req.full_url, json.loads(req.data)))
+        body = json.dumps({"message": {"content": json.dumps(self.answers)}}).encode()
+
+        @contextmanager
+        def resp():
+            yield io.BytesIO(body)
+        return resp()
+
+
+QUESTIONS = {
+    "dept": {"type": "choice", "instructions": "어느 팀이 맡나?",
+             "criteria": {"billing": "결제·환불", "tech": "버그·장애"}},
+    "anger": {"type": "score", "instructions": "고객이 얼마나 화났나?", "criteria": ["차분", "답답", "매우 화남"]},
+    "urgent": {"type": "noul", "instructions": "지금 급한가?"},
+}
+
+
+class TestJudge(EnvFixture):
+    def setUp(self):
+        super().setUp()
+        import judge
+        self.judge = judge
+        self.fake = FakeOllama({"dept": "billing", "anger": 2, "urgent": 0.9})
+        self.addCleanup(setattr, judge, "urlopen", judge.urlopen)
+        judge.urlopen = self.fake
+
+    def test_returns_jev_shaped_answers(self):
+        a = self.judge.judge("결제가 3일째 실패해요", QUESTIONS)
+        self.assertEqual(a, {"dept": {"choice": "billing"}, "anger": {"score": 2}, "urgent": {"noul": 0.9}})
+
+    def test_request_goes_to_local_ollama_with_schema(self):
+        self.judge.judge("결제가 3일째 실패해요", QUESTIONS)
+        url, body = self.fake.requests[0]
+        self.assertEqual(url, "http://localhost:11434/api/chat")
+        self.assertEqual((body["model"], body["stream"], body["think"]), ("main-64k", False, False))
+        props = body["format"]["properties"]
+        self.assertEqual(props["dept"]["enum"], ["billing", "tech"])
+        self.assertEqual((props["anger"]["minimum"], props["anger"]["maximum"]), (0, 2))
+        self.assertIn("결제가 3일째 실패해요", body["messages"][-1]["content"])
+
+    def test_url_and_model_from_paths_env(self):
+        (self.tmp / "cfg" / "paths.env").write_text(
+            "HERMES_JUDGE_URL=http://100.114.236.66:11434/\nHERMES_JUDGE_MODEL=qwen3:8b\n", encoding="utf-8")
+        self.judge.judge("x", QUESTIONS)
+        url, body = self.fake.requests[0]
+        self.assertEqual((url, body["model"]), ("http://100.114.236.66:11434/api/chat", "qwen3:8b"))
+
+    def test_bad_question_rejected_before_call(self):
+        bad = {"anger": {"type": "score", "instructions": "화났나?", "criteria": ["하나뿐"]}}
+        with self.assertRaises(ValueError):
+            self.judge.judge("x", bad)
+        self.assertEqual(self.fake.requests, [])
+
+    def test_out_of_range_answer_raises(self):
+        self.fake.answers = {"dept": "sales", "anger": 2, "urgent": 0.9}
+        with self.assertRaises(ValueError):
+            self.judge.judge("x", QUESTIONS)
+
+    # 리뷰: 스키마를 어긴 답(리스트·bool)은 TypeError·확실한 '예'가 아니라 ValueError
+    def test_wrong_typed_answers_raise_value_error(self):
+        for bad in ({"dept": ["billing"]}, {"urgent": True}, {"anger": True}):
+            self.fake.answers = {"dept": "billing", "anger": 2, "urgent": 0.9, **bad}
+            with self.assertRaises(ValueError, msg=bad):
+                self.judge.judge("x", QUESTIONS)
+
+    def test_non_object_reply_raises_value_error(self):
+        self.fake.answers = ["billing"]
+        with self.assertRaises(ValueError):
+            self.judge.judge("x", QUESTIONS)
+
+    # 리뷰: 빈 state·이상한 질문은 그럴듯한 판정이 되기 전에 막는다
+    def test_empty_state_and_malformed_question_rejected_before_call(self):
+        for state, qs in (("", QUESTIONS), (None, QUESTIONS), ("x", {"u": "질문"}),
+                          ("x", {"u": {"type": "noul", "instructions": None}})):
+            with self.assertRaises(ValueError, msg=(state, qs)):
+                self.judge.judge(state, qs)
+        self.assertEqual(self.fake.requests, [])
+
+    # 호출 실패는 '아니오'가 아니라 에러다 — 삼키지 않는다
+    def test_network_error_propagates(self):
+        self.fake.raise_exc = urllib.error.URLError("no route")
+        with self.assertRaises(OSError):
+            self.judge.judge("x", QUESTIONS)
+
+
 if __name__ == "__main__":
     unittest.main()

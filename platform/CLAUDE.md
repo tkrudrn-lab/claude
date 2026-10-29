@@ -7,7 +7,7 @@
 
 **[자동화_설계_v01.md](자동화_설계_v01.md)** (2026-10-25, **승인**) — 맥스튜디오 24시간 본진, 5개 작업을 초안까지 에이전트가 만들어 텔레그램으로. 승인선·공용 뼈대(notify·카탈로그·launchd)·도메인별 흐름·착수 순서·맥 반입 체크리스트.
 구현 계획: [0a 공용 뼈대](자동화_계획_0a_공용뼈대.md) (**코드 완료 2026-10-26**, 브랜치 `automation-0a` — 텔레그램 봇 연결만 사용자 대기) → 1 블로그 → 0b 맥 반입 → 2 누리텍 → 3 릴스 → 4 온돌.
-`platform/jobs/` — `common.py`(설정·로그) · `notify.py`(텔레그램) · `catalog.py`(미디어 `_catalog.csv`). 테스트 `cd platform/jobs && python -m unittest test_jobs -v` (15개). 설정은 `~/.config/hermes/paths.env`·`telegram.env` (저장소 밖). 카탈로그 생성됨 — 비바사진 241 · 서천 1,809 (2026-10-26 12시 기준, 서천은 작업 중이라 늘어난다). 영상 촬영시각은 로컬(KST).
+`platform/jobs/` — `common.py`(설정·로그) · `notify.py`(텔레그램) · `catalog.py`(미디어 `_catalog.csv`) · `judge.py`(분류·점수·예/아니오 판정 — Jev 모양, 맥 Ollama qwen3로 무료, 2026-10-29). 테스트 `cd platform/jobs && python -m unittest test_jobs -v` (32개). 설정은 `~/.config/hermes/paths.env`·`telegram.env` (저장소 밖). 카탈로그 생성됨 — 비바사진 241 · 서천 1,809 (2026-10-26 12시 기준, 서천은 작업 중이라 늘어난다). 영상 촬영시각은 로컬(KST).
 
 ## 맥 세팅
 
