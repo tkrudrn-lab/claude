@@ -12,7 +12,7 @@
 ## 맥 세팅
 
 **[맥_세팅_v01.md](맥_세팅_v01.md)** (2026-10-27) — 맥스튜디오에 이 파일 하나 주면 0→9 순서로 세팅. 노트북 짐 싸기(PowerShell) · brew · 플러그인·스킬 41+신규(instagram-agent-skill·hypit·ECC·find-skills) · 파일 이사 · MCP 최소 · 0a 뼈대 연결·launchd · 노션 AI setup 항목 · atticus-mac · 검증표. **노션 export zip 대기**(MOTION-KIT·Model Routing·블로그 프롬프트·PDF).
-**남에게 주는 도구 세팅 [Claude_Setup.md](Claude_Setup.md)**(2026-11-03, 2026-11-04 이름 변경 · "친구" 표현 뺌) — 맥_세팅 11절 + 릴스 「Claude 저장소 40개」를 중복 없이 합친 범용판 + 개인 비서 I그룹(텔레그램 채널 · ClaudeClaw 등 구독 안 + Hermes Agent 원본, 모델 요금 별도) · ai-engineering-from-scratch. 개인·사업 정보 · 로컬 LLM · 맥 연동 뺌. 파일만 넣고 엔터 → Claude가 목록 설명 → 하는 일 질문 → 추천 지도로 맞춤 추천 → 더하기/빼기 확정 → GitHub README 확인 후 설치 → 확인·첫 사용 안내(내용 v02). J그룹 외부 서비스 9종(vidIQ·Metricool·Zapier·솔라피·PlayMCP 등, Higgsfield는 E10에 합침). **E12 Gemini 도구 추가(2026-11-15)** — 저장소가 없어 받는 쪽 Claude가 도우미를 직접 만드는 지시 + 겪은 함정. **「뽀기's Custom Set-up version 바이블」**(그림 설명 HTML)이 MD 맨 끝에 들어 있어 0단계에서 `awk`로 꺼내 브라우저로 연다 — 원본은 MD 안의 이 부록뿐이다 — 바이블을 고칠 땐 같은 `awk`로 꺼내 고친 뒤 부록 코드블록을 통째로 바꾼다.
+**남에게 주는 도구 세팅 → 독립 비공개 레포 [claude-setup/](../claude-setup/README.md)** (github.com/tkrudrn-lab/claude-setup, 2026-11-15 이전 · hermes 커밋과 섞지 않음, `.git/info/exclude`) — `Claude_Setup.md`(Claude에게 주는 원본, 맨 끝에 바이블 HTML) · `README.md`(처음 보는 사람용 그림 안내: 3단계 시작 · 흐름도 · 바이블 화면 5장 · 최근 추가 카드) · `ADDING.md`(새 기능 넣는 체크리스트 — 기능 카드 · 고칠 곳 · 검사 · 그림 다시 만들기). **수정은 그 폴더에서 하고 그 레포에 커밋 · push.** 내용: 맥_세팅 11절 + 릴스 「Claude 저장소 40개」 범용판 · A~J 88개 · E12 Gemini(2026-11-15).
 **미디어아트 먼저 이관(2026-10-30):** 서천+지시파일+Claude/에이전트 설정 zip(구글 드라이브 내 드라이브 `hermes_맥이관_20261030.zip`, 원본 `D:\_mac_upload\`) → 맥에서 [맥_미디어아트_이관_프롬프트.md](맥_미디어아트_이관_프롬프트.md) 붙여넣기. D: 전체 Drive 백업은 취소.
 
 ## 에이전트 스택
