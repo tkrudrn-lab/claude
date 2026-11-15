@@ -7,9 +7,11 @@ API: google-genai 2.25+ Interactions API (client.interactions.create) — 2026-1
   python gemini.py models
   python gemini.py text "질문" [--search] [--urls] [--file 그림.png]
   python gemini.py video <유튜브 링크|파일.mp4> "질문" [--start 2:00 --end 4:30] [--out breakdown.md]
-  python gemini.py image <출력.png> --prompt "..." [--prompt "..."] [--ref style/a.png] [--aspect 9:16] [--size 2K]
-  python gemini.py tts <출력.wav> "읽을 글" [--voice Kore] [--style "confident, upbeat"]
+  python gemini.py image <출력.jpg> --prompt "..." [--prompt "..."] [--ref style/a.png] [--aspect 9:16] [--size 2K]
+  python gemini.py tts <출력.wav> "읽을 글" [--voice Kore|내가만든이름] [--style "confident, upbeat"]
   python gemini.py podcast <대본.txt> <출력.wav> --voice Alex=Puck --voice Sam=Kore
+  python gemini.py voice create "목소리 설명 1~2문장" --name 이름 [--lang ko-KR] [--gender male] [--sample 미리듣기.wav]
+  python gemini.py voice list | voice delete <이름>
 """
 import argparse
 import base64
@@ -37,8 +39,9 @@ def client():
         raise SystemExit("GEMINI_API_KEY 비어 있음 — ~/.config/hermes/gemini.env 에 넣어라 (aistudio.google.com/apikey)")
     c = genai.Client(api_key=key, http_options={"api_version": "v1beta"})
     # SDK는 429를 몇 분씩 조용히 재시도한다 — 무료 키 그림처럼 "하루 0회"면 기다려도 소용없으니 바로 실패시켜 이유를 보여 준다
-    if hasattr(c.interactions, "sdk_configuration"):
-        c.interactions.sdk_configuration.retry_config = None
+    for api in (c.interactions, c.voices):
+        if hasattr(api, "sdk_configuration"):
+            api.sdk_configuration.retry_config = None
     return c
 
 
@@ -147,7 +150,48 @@ def _speak(blocks: list[dict], speech_config, out, model: str) -> Path:
 
 
 def tts(text: str, out, voice="Kore", style=None, model=TTS_MODEL) -> Path:
-    return _speak([speech_block(text, style=style)], [{"voice": voice}], out, model)
+    return _speak([speech_block(text, style=style)], [{"voice": resolve_voice(voice)}], out, model)
+
+
+PREBUILT_VOICES = frozenset(
+    "Zephyr Puck Charon Kore Fenrir Leda Orus Aoede Callirrhoe Autonoe Enceladus Iapetus Umbriel Algieba Despina "
+    "Erinome Algenib Rasalgethi Laomedeia Achernar Alnilam Schedar Gacrux Pulcherrima Achird Zubenelgenubi "
+    "Vindemiatrix Sadachbia Sadaltager Sulafat".split()
+)
+
+
+def voice_list() -> list[tuple[str, str]]:
+    """내가 설계한 목소리 [(id, 이름)] — 최신 것이 앞."""
+    res = client().voices.list(type_=["prompted"])
+    return [(v.id, v.display_name or "") for v in res.voices or []]
+
+
+def resolve_voice(voice: str) -> str:
+    """기본 목소리 이름 · voice_ID는 그대로, 그 밖의 이름은 내가 설계한 목소리에서 찾아 ID로."""
+    if voice in PREBUILT_VOICES or voice.startswith("voice_"):
+        return voice
+    mine = voice_list()
+    for vid, name in mine:
+        if name == voice:
+            return vid
+    have = ", ".join(name for _, name in mine) or "없음"
+    raise ValueError(f"'{voice}' 목소리가 없다 — 기본 30종이나 설계한 목소리({have}) 중에서 고른다")
+
+
+def voice_create(description: str, name: str, lang="ko-KR", gender=None, sample=None, model=TTS_MODEL) -> str:
+    """문장으로 목소리를 설계해 Google에 저장(1년 안 쓰면 만료 · 최대 200개) → voice_ID. 나이 · 음색 · 말투 같은 고정 특징만 쓴다."""
+    spec = {"model": model, "type": "prompted", "display_name": name, "language_code": lang, "prompted": {"input": description}}
+    v = client().voices.create(store=True, voice=spec | ({"gender": gender} if gender else {}))
+    if sample and v.sample_audio and v.sample_audio.data:
+        Path(sample).parent.mkdir(parents=True, exist_ok=True)
+        Path(sample).write_bytes(base64.b64decode(v.sample_audio.data))
+    return v.id
+
+
+def voice_delete(voice: str) -> str:
+    vid = resolve_voice(voice)
+    client().voices.delete(id=vid)
+    return vid
 
 
 def podcast(turns: list[tuple[str, str]], voices: dict[str, str], out, model=TTS_MODEL) -> Path:
@@ -206,8 +250,19 @@ def main(argv=None) -> None:
     p = sub.add_parser("podcast")
     p.add_argument("script")
     p.add_argument("out")
-    p.add_argument("--voice", action="append", required=True, help="이름=목소리")
+    p.add_argument("--voice", action="append", required=True, help="이름=목소리 (기본 목소리만 — 설계한 목소리는 한 요청에 섞을 수 없음)")
+    vc = sub.add_parser("voice", help="목소리 설계 · 목록 · 삭제")
+    vc.add_argument("action", choices=["create", "list", "delete"])
+    vc.add_argument("arg", nargs="?", help="create: 목소리 설명 / delete: 이름이나 voice_ID")
+    vc.add_argument("--name", help="create: 나중에 tts --voice 로 부를 이름")
+    vc.add_argument("--lang", default="ko-KR")
+    vc.add_argument("--gender", choices=["male", "female"])
+    vc.add_argument("--sample", help="create: 미리듣기 WAV 저장 경로")
     a = ap.parse_args(argv)
+    if a.cmd == "voice" and a.action in ("create", "delete") and not a.arg:
+        ap.error(f"voice {a.action} 에는 {'목소리 설명' if a.action == 'create' else '이름'}이 필요하다")
+    if a.cmd == "voice" and a.action == "create" and not a.name:
+        ap.error("voice create 에는 --name 이 필요하다")
 
     if a.cmd == "models":
         print("\n".join(models()))
@@ -226,6 +281,12 @@ def main(argv=None) -> None:
     elif a.cmd == "podcast":
         voices = dict(x.split("=", 1) for x in a.voice)
         print(podcast(parse_script(Path(a.script).read_text(encoding="utf-8"), voices), voices, a.out))
+    elif a.cmd == "voice" and a.action == "create":
+        print(voice_create(a.arg, a.name, a.lang, a.gender, a.sample) + (f"\n미리듣기: {a.sample}" if a.sample else ""))
+    elif a.cmd == "voice" and a.action == "list":
+        print("\n".join(f"{name}\t{vid}" for vid, name in voice_list()) or "설계한 목소리 없음")
+    elif a.cmd == "voice":
+        print("삭제:", voice_delete(a.arg))
 
 
 if __name__ == "__main__":

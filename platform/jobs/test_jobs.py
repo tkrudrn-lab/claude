@@ -439,6 +439,39 @@ class TestGemini(EnvFixture):  # 네트워크 없이 — 입력 만들기 · 결
         self.assertEqual(out.read_bytes(), b"jpegbytes")
         self.assertEqual(seen["response_format"], {"type": "image", "mime_type": "image/jpeg", "aspect_ratio": "1:1"})
 
+    def _fake_voices(self, seen):
+        import base64
+        from types import SimpleNamespace as N
+        mine = N(voices=[N(id="voice_new1", display_name="자연내레이터"), N(id="voice_old2", display_name="샵소개")])
+        def create(store, voice):
+            seen.update(store=store, voice=voice)
+            return N(id="voice_new1", sample_audio=N(data=base64.b64encode(b"RIFFwav").decode()))
+        return N(voices=N(list=lambda type_: mine, create=create, delete=lambda id: seen.update(deleted=id)))
+
+    def test_resolve_voice_by_name_and_passthrough(self):
+        from unittest import mock
+        with mock.patch.object(self.g, "client", lambda: self._fake_voices({})):
+            self.assertEqual(self.g.resolve_voice("Kore"), "Kore")
+            self.assertEqual(self.g.resolve_voice("voice_abc"), "voice_abc")
+            self.assertEqual(self.g.resolve_voice("샵소개"), "voice_old2")
+            with self.assertRaises(ValueError) as cm:
+                self.g.resolve_voice("없는목소리")
+            self.assertIn("자연내레이터", str(cm.exception))
+
+    def test_voice_create_stores_prompted_voice_and_saves_sample(self):
+        from unittest import mock
+        seen = {}
+        with mock.patch.object(self.g, "client", lambda: self._fake_voices(seen)):
+            vid = self.g.voice_create("낮고 따뜻한 내레이터", "자연내레이터", gender="male", sample=self.tmp / "p.wav")
+            self.g.voice_delete("자연내레이터")
+        self.assertEqual(vid, "voice_new1")
+        self.assertTrue(seen["store"])
+        self.assertEqual(seen["voice"], {"model": self.g.TTS_MODEL, "type": "prompted", "display_name": "자연내레이터",
+                                         "language_code": "ko-KR", "prompted": {"input": "낮고 따뜻한 내레이터"},
+                                         "gender": "male"})
+        self.assertEqual((self.tmp / "p.wav").read_bytes(), b"RIFFwav")
+        self.assertEqual(seen["deleted"], "voice_new1")
+
     def test_client_turns_off_silent_retries(self):  # 429를 몇 분씩 재시도하며 멈춘 것처럼 보이던 문제
         os.environ["GEMINI_API_KEY"] = "test-not-a-key"
         self.g.client.cache_clear()
