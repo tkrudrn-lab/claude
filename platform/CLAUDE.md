@@ -7,11 +7,13 @@
 
 **[자동화_설계_v01.md](자동화_설계_v01.md)** (2026-10-25, **승인**) — 맥스튜디오 24시간 본진, 5개 작업을 초안까지 에이전트가 만들어 텔레그램으로. 승인선·공용 뼈대(notify·카탈로그·launchd)·도메인별 흐름·착수 순서·맥 반입 체크리스트.
 구현 계획: [0a 공용 뼈대](자동화_계획_0a_공용뼈대.md) (**코드 완료 2026-10-26**, 브랜치 `automation-0a` — 텔레그램 봇 연결만 사용자 대기) → 1 블로그 → 0b 맥 반입 → 2 누리텍 → 3 릴스 → 4 온돌.
-`platform/jobs/` — `common.py`(설정·로그) · `notify.py`(텔레그램) · `catalog.py`(미디어 `_catalog.csv`) · `judge.py`(분류·점수·예/아니오 판정 — Jev 모양, 맥 Ollama qwen3로 무료, 2026-10-29). 테스트 `cd platform/jobs && python -m unittest test_jobs -v` (32개). 설정은 `~/.config/hermes/paths.env`·`telegram.env` (저장소 밖). 카탈로그 생성됨 — 비바사진 241 · 서천 1,809 (2026-10-26 12시 기준, 서천은 작업 중이라 늘어난다). 영상 촬영시각은 로컬(KST).
+`platform/jobs/` — `common.py`(설정·로그) · `notify.py`(텔레그램) · `catalog.py`(미디어 `_catalog.csv`) · `judge.py`(분류·점수·예/아니오 판정 — Jev 모양, 맥 Ollama qwen3로 무료, 2026-10-29) · `gemini.py`(Gemini 도우미, 아래 표). 테스트 `cd platform/jobs && python -m unittest test_jobs -v` (40개). 설정은 `~/.config/hermes/paths.env`·`telegram.env` (저장소 밖). 카탈로그 생성됨 — 비바사진 241 · 서천 1,809 (2026-10-26 12시 기준, 서천은 작업 중이라 늘어난다). 영상 촬영시각은 로컬(KST).
 
 ## 맥 세팅
 
 **[맥_세팅_v01.md](맥_세팅_v01.md)** (2026-10-27) — 맥스튜디오에 이 파일 하나 주면 0→9 순서로 세팅. 노트북 짐 싸기(PowerShell) · brew · 플러그인·스킬 41+신규(instagram-agent-skill·hypit·ECC·find-skills) · 파일 이사 · MCP 최소 · 0a 뼈대 연결·launchd · 노션 AI setup 항목 · atticus-mac · 검증표. **노션 export zip 대기**(MOTION-KIT·Model Routing·블로그 프롬프트·PDF).
+**남에게 주는 도구 세팅 [Claude_Setup.md](Claude_Setup.md)**(2026-11-03, 2026-11-04 이름 변경 · "친구" 표현 뺌) — 맥_세팅 11절 + 릴스 「Claude 저장소 40개」를 중복 없이 합친 범용판 + 개인 비서 I그룹(텔레그램 채널 · ClaudeClaw 등 구독 안 + Hermes Agent 원본, 모델 요금 별도) · ai-engineering-from-scratch. 개인·사업 정보 · 로컬 LLM · 맥 연동 뺌. 파일만 넣고 엔터 → Claude가 목록 설명 → 하는 일 질문 → 추천 지도로 맞춤 추천 → 더하기/빼기 확정 → GitHub README 확인 후 설치 → 확인·첫 사용 안내(내용 v02). J그룹 외부 서비스 9종(vidIQ·Metricool·Zapier·솔라피·PlayMCP 등, Higgsfield는 E10에 합침). **E12 Gemini 도구 추가(2026-11-15)** — 저장소가 없어 받는 쪽 Claude가 도우미를 직접 만드는 지시 + 겪은 함정. **「뽀기's Custom Set-up version 바이블」**(그림 설명 HTML)이 MD 맨 끝에 들어 있어 0단계에서 `awk`로 꺼내 브라우저로 연다 — 원본은 MD 안의 이 부록뿐이다 — 바이블을 고칠 땐 같은 `awk`로 꺼내 고친 뒤 부록 코드블록을 통째로 바꾼다.
+**미디어아트 먼저 이관(2026-10-30):** 서천+지시파일+Claude/에이전트 설정 zip(구글 드라이브 내 드라이브 `hermes_맥이관_20261030.zip`, 원본 `D:\_mac_upload\`) → 맥에서 [맥_미디어아트_이관_프롬프트.md](맥_미디어아트_이관_프롬프트.md) 붙여넣기. D: 전체 Drive 백업은 취소.
 
 ## 에이전트 스택
 
@@ -29,6 +31,8 @@
 |---|---|
 | LTX-2 비디오 생성 모델 | `LTX-2/` → [LTX2.md](../LTX2.md). **독립 서브 git repo — hermes 커밋과 섞지 않는다** |
 | Higgsfield CLI, Kling 3.0 | 볼트 외부 도구 노트 |
+| **생성 역할 나누기 (2026-10-30)** | **큰 작업 = Higgsfield**(claude.ai 커넥터 — 360° 이어 그리기 · Kling 영상 · 고해상도 최종본) · **작은 작업 = Open Generative AI 로컬 무료**(맥, Z-Image Turbo — 구도·색 시안 · 썸네일 · 참고 이미지 초안). **노트북에서 부르기: `platform/ogai.sh "프롬프트" [폭 높이] [저장.png]`** — SSH `apple@mac-studio`(Tailscale, 키 등록 2026-10-30)로 맥 `sd-cli` 실행 후 가져옴, 1344×576 한 장 ≈ 42초. 설치는 단독 지시서 [맥_OpenGenerativeAI_로컬설치.md](맥_OpenGenerativeAI_로컬설치.md)(구글 드라이브에도 올림) · 전체판은 [맥_세팅_v01.md](맥_세팅_v01.md) 11절 |
+| **Gemini 도우미 (2026-11-14)** | `platform/jobs/gemini.py` — Claude가 못 하는 것: 그림·사진 편집(Nano Banana 2.1) · 유튜브/영상 분석 · TTS · 2인 팟캐스트 · 구글 검색 사실 확인 · URL 20개 읽기. Interactions API, 키 `~/.config/hermes/gemini.env`(저장소 밖). 스킬 `~/.claude/skills/gemini-tools/`. 출처: sambutlerai 「Connect Claude to Gemini」 PDF. **2026-11-15 무료 키로 확인: 글 · 유튜브 분석 · 로컬 영상(한글 이름 · 구간) OK / 구글 검색 근거는 429(결제 필요) / 그림 · 음성 미시험** |
 | Archify (다이어그램 렌더) | `hermes-vault/`, `Ai\Project Ideas\` |
 | Wan GPU 렌탈 세팅 가이드 | Google Drive |
 | graphify 출력 | `graphify-out/` |

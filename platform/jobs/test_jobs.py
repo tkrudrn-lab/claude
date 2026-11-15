@@ -374,5 +374,64 @@ class TestJudge(EnvFixture):
             self.judge.judge("x", QUESTIONS)
 
 
+class TestGemini(EnvFixture):  # 네트워크 없이 — 입력 만들기 · 결과 읽기만
+    def setUp(self):
+        super().setUp()
+        import gemini
+        self.g = gemini
+
+    def test_parse_script_joins_continuations_and_ignores_unknown_names(self):
+        script = "Alex: 안녕\n이어지는 줄\n\nSam: 메모: 이건 대사\nNote: 대사 안 콜론"
+        self.assertEqual(self.g.parse_script(script, {"Alex", "Sam"}), [
+            ("Alex", "안녕 이어지는 줄"), ("Sam", "메모: 이건 대사 Note: 대사 안 콜론")])
+        with self.assertRaises(ValueError):
+            self.g.parse_script("머리말\nAlex: 안녕", {"Alex"})
+
+    def test_secs(self):
+        self.assertEqual([self.g.secs(x) for x in ("90", "2:30", "1:02:03")], [90, 150, 3723])
+
+    def test_speech_block_only_annotates_when_needed(self):
+        self.assertEqual(self.g.speech_block("hi"), {"type": "text", "text": "hi"})
+        self.assertEqual(self.g.speech_block("hi", speaker="Sam")["annotations"],
+                         [{"type": "speech_metadata", "speaker": "Sam"}])
+
+    def test_sources_dedupes_citations(self):
+        from types import SimpleNamespace as N
+        cite = lambda url: N(type="url_citation", url=url, title=None)
+        it = N(steps=[N(type="google_search_call"), N(type="model_output", content=[
+            N(type="text", annotations=[cite("https://a"), cite("https://b"), cite("https://a")])])])
+        self.assertEqual(self.g.sources(it), ["https://a — https://a", "https://b — https://b"])
+
+    def test_media_block_rejects_non_image_audio(self):
+        p = self.tmp / "x.png"
+        p.write_bytes(b"\x89PNG")
+        self.assertEqual(self.g.media_block(str(p))["type"], "image")
+        with self.assertRaises(ValueError):
+            self.g.media_block(str(self.tmp / "x.txt"))
+
+    def test_video_clip_offsets(self):
+        self.assertEqual(self.g.video_block("https://youtu.be/x", 120, 270)["processing"],
+                         {"type": "static", "start_offset": "120s", "end_offset": "270s"})
+        self.assertNotIn("processing", self.g.video_block("https://youtu.be/x"))
+
+    def test_local_video_uploads_file_object_not_path(self):  # 경로를 주면 한글 파일 이름이 HTTP 헤더에서 깨진다
+        from types import SimpleNamespace as N
+        p = self.tmp / "씨앗.mp4"
+        p.write_bytes(b"x")
+        seen = {}
+        done = N(state=N(name="ACTIVE"), uri="files/u", mime_type="video/mp4", name="files/1")
+        c = N(files=N(upload=lambda file, config: seen.update(file=file, config=config) or done))
+        self.assertEqual(self.g.video_block(str(p), c=c)["uri"], "files/u")
+        self.assertNotIsInstance(seen["file"], str)
+        self.assertEqual(seen["config"], {"mime_type": "video/mp4"})
+
+    def test_missing_key_stops_with_hint(self):
+        os.environ.pop("GEMINI_API_KEY", None)
+        (self.tmp / "cfg" / "gemini.env").write_text("GEMINI_API_KEY=\n", encoding="utf-8")
+        with self.assertRaises(SystemExit) as cm:
+            self.g.client()
+        self.assertIn("gemini.env", str(cm.exception))
+
+
 if __name__ == "__main__":
     unittest.main()
