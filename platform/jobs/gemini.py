@@ -35,7 +35,11 @@ def client():
     key = os.environ.get("GEMINI_API_KEY") or load_env("gemini").get("GEMINI_API_KEY", "")
     if not key:
         raise SystemExit("GEMINI_API_KEY 비어 있음 — ~/.config/hermes/gemini.env 에 넣어라 (aistudio.google.com/apikey)")
-    return genai.Client(api_key=key, http_options={"api_version": "v1beta"})
+    c = genai.Client(api_key=key, http_options={"api_version": "v1beta"})
+    # SDK는 429를 몇 분씩 조용히 재시도한다 — 무료 키 그림처럼 "하루 0회"면 기다려도 소용없으니 바로 실패시켜 이유를 보여 준다
+    if hasattr(c.interactions, "sdk_configuration"):
+        c.interactions.sdk_configuration.retry_config = None
+    return c
 
 
 def secs(t: str) -> int:
@@ -103,8 +107,8 @@ def watch(src: str, prompt: str, start=None, end=None, model=TEXT_MODEL) -> str:
 
 def image(prompt: str, out, refs=(), aspect=None, size=None, model=IMAGE_MODEL) -> Path:
     """만들기 · 고치기 겸용 — refs 에 원본 사진이나 스타일 그림(최대 14장). size 는 1K/2K/4K(대문자 K)."""
-    out = Path(out)
-    fmt = {"type": "image", "mime_type": mimetypes.guess_type(out.name)[0] or "image/png"}
+    out = Path(out).with_suffix(".jpg")  # API가 image/jpeg만 받는다(png 요청은 400, 2026-11-15 확인)
+    fmt = {"type": "image", "mime_type": "image/jpeg"}
     fmt |= {k: v for k, v in (("aspect_ratio", aspect), ("image_size", size)) if v}
     blocks = [{"type": "text", "text": prompt}, *map(media_block, refs)]
     it = client().interactions.create(model=model, input=blocks, response_format=fmt)

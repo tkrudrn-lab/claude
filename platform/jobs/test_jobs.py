@@ -425,6 +425,29 @@ class TestGemini(EnvFixture):  # 네트워크 없이 — 입력 만들기 · 결
         self.assertNotIsInstance(seen["file"], str)
         self.assertEqual(seen["config"], {"mime_type": "video/mp4"})
 
+    def test_image_always_asks_jpeg_and_saves_jpg(self):  # png 요청은 API가 400으로 거절한다
+        import base64
+        from unittest import mock
+        from types import SimpleNamespace as N
+        seen = {}
+        def create(**kw):
+            seen.update(kw)
+            return N(output_image=N(data=base64.b64encode(b"jpegbytes").decode()))
+        with mock.patch.object(self.g, "client", lambda: N(interactions=N(create=create))):
+            out = self.g.image("잎", self.tmp / "a.png", aspect="1:1")
+        self.assertEqual(out.suffix, ".jpg")
+        self.assertEqual(out.read_bytes(), b"jpegbytes")
+        self.assertEqual(seen["response_format"], {"type": "image", "mime_type": "image/jpeg", "aspect_ratio": "1:1"})
+
+    def test_client_turns_off_silent_retries(self):  # 429를 몇 분씩 재시도하며 멈춘 것처럼 보이던 문제
+        os.environ["GEMINI_API_KEY"] = "test-not-a-key"
+        self.g.client.cache_clear()
+        try:
+            self.assertIsNone(self.g.client().interactions.sdk_configuration.retry_config)
+        finally:
+            self.g.client.cache_clear()
+            os.environ.pop("GEMINI_API_KEY")
+
     def test_missing_key_stops_with_hint(self):
         os.environ.pop("GEMINI_API_KEY", None)
         (self.tmp / "cfg" / "gemini.env").write_text("GEMINI_API_KEY=\n", encoding="utf-8")
