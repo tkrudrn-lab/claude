@@ -28,6 +28,9 @@ from common import load_env
 TEXT_MODEL = "gemini-4-hydrogen"  # 빠른 일상 모델(문서 예시 기본). 안정판이 필요하면 gemini-3.8-flash
 IMAGE_MODEL = "gemini-nano-banana-2.1"  # 안정판 gemini-3.1-flash-image · 고품질 gemini-3-pro-image
 TTS_MODEL = "gemini-3.8-flash-tts"  # 싼 판 gemini-3.8-flash-lite-tts
+FALLBACK_MODEL = "gemini-3.5-flash-lite"  # 글 · 영상 모델이 바쁠 때 한 번 넘어가는 곳 (2026-11-21: 기본 모델 503 · 504일 때 이것만 1~4초에 답함)
+WAIT_S = 60  # 글 질문을 기다리는 시간 — 제한이 없을 땐 서버가 바쁘면 3분씩 멈춰 있었다
+VIDEO_WAIT_S = 300  # 영상 분석은 원래 오래 걸린다. 업로드(files.upload)에는 제한을 걸지 않는다
 
 
 @functools.cache  # 한 개를 계속 붙잡아 둔다 — 임시 Client는 지워지는 순간 연결을 닫아 요청이 실패한다
@@ -76,10 +79,26 @@ def sources(interaction) -> list[str]:
     return [f"{title} — {url}" for url, title in seen.items()]
 
 
+def busy(e: Exception) -> bool:
+    """서버가 바쁨(5xx)이거나 기다리다 끊음 — 다른 모델이면 될 수 있는 실패. 429 · 400 은 아니다(넘어가도 안 풀림)."""
+    return type(e).__name__ == "APITimeoutError" or (getattr(e, "status_code", None) or 0) >= 500
+
+
+def answer(model: str, wait: int, **kw):
+    """글 · 영상 질문 — model이 바쁘면 FALLBACK_MODEL로 한 번 더."""
+    try:
+        return client().interactions.create(model=model, timeout=wait, **kw)
+    except Exception as e:
+        if model == FALLBACK_MODEL or not busy(e):
+            raise
+        print(f"[gemini] {model} 바쁨({type(e).__name__}) → {FALLBACK_MODEL}로 다시", file=sys.stderr)
+        return client().interactions.create(model=FALLBACK_MODEL, timeout=wait, **kw)
+
+
 def ask(prompt: str, files=(), search=False, urls=False, model=TEXT_MODEL) -> tuple[str, list[str]]:
     tools = [{"type": "google_search"}] * search + [{"type": "url_context"}] * urls
     blocks = [{"type": "text", "text": prompt}, *map(media_block, files)]
-    it = client().interactions.create(model=model, input=blocks, **({"tools": tools} if tools else {}))
+    it = answer(model, WAIT_S, input=blocks, **({"tools": tools} if tools else {}))
     return it.output_text, sources(it)
 
 
@@ -103,9 +122,8 @@ def video_block(src: str, start=None, end=None, c=None) -> dict:
 
 
 def watch(src: str, prompt: str, start=None, end=None, model=TEXT_MODEL) -> str:
-    c = client()
-    blocks = [video_block(src, start, end, c), {"type": "text", "text": prompt}]
-    return c.interactions.create(model=model, input=blocks).output_text
+    blocks = [video_block(src, start, end, client()), {"type": "text", "text": prompt}]
+    return answer(model, VIDEO_WAIT_S, input=blocks).output_text
 
 
 def image(prompt: str, out, refs=(), aspect=None, size=None, model=IMAGE_MODEL) -> Path:

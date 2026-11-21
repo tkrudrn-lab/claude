@@ -472,6 +472,46 @@ class TestGemini(EnvFixture):  # 네트워크 없이 — 입력 만들기 · 결
         self.assertEqual((self.tmp / "p.wav").read_bytes(), b"RIFFwav")
         self.assertEqual(seen["deleted"], "voice_new1")
 
+    def _fake_create(self, calls, fail):
+        """fail(model) 이 예외를 주면 던지고, 아니면 그 모델 이름으로 답한다."""
+        from types import SimpleNamespace as N
+        def create(model, timeout, **kw):
+            calls.append((model, timeout))
+            if err := fail(model):
+                raise err
+            return N(output_text=f"answer from {model}", steps=[])
+        return lambda: N(interactions=N(create=create))
+
+    def test_text_falls_back_to_lite_when_main_model_busy(self):  # 2026-11-21 기본 모델 503 · 3분 멈춤
+        from unittest import mock
+        busy = type("InternalServerError", (Exception,), {"status_code": 503})
+        calls = []
+        fake = self._fake_create(calls, lambda m: busy("high demand") if m == self.g.TEXT_MODEL else None)
+        with mock.patch.object(self.g, "client", fake):
+            answer, _ = self.g.ask("hi")
+        self.assertEqual(answer, f"answer from {self.g.FALLBACK_MODEL}")
+        self.assertEqual(calls, [(self.g.TEXT_MODEL, 60), (self.g.FALLBACK_MODEL, 60)])
+
+    def test_video_timeout_falls_back_with_longer_wait(self):
+        from unittest import mock
+        timeout = type("APITimeoutError", (Exception,), {})
+        calls = []
+        fake = self._fake_create(calls, lambda m: timeout("timed out") if m == self.g.TEXT_MODEL else None)
+        with mock.patch.object(self.g, "client", fake):
+            answer = self.g.watch("https://youtu.be/x", "요약")
+        self.assertEqual(answer, f"answer from {self.g.FALLBACK_MODEL}")
+        self.assertEqual([m for m, _ in calls], [self.g.TEXT_MODEL, self.g.FALLBACK_MODEL])
+        self.assertTrue(all(t == self.g.VIDEO_WAIT_S > 60 for _, t in calls))
+
+    def test_quota_error_does_not_fall_back(self):  # 429 · 400 은 다른 모델로 가도 안 풀린다 — 그대로 보여 준다
+        from unittest import mock
+        quota = type("RateLimitError", (Exception,), {"status_code": 429})
+        calls = []
+        with mock.patch.object(self.g, "client", self._fake_create(calls, lambda m: quota("limit: 0"))):
+            with self.assertRaises(quota):
+                self.g.ask("hi")
+        self.assertEqual(len(calls), 1)
+
     def test_client_turns_off_silent_retries(self):  # 429를 몇 분씩 재시도하며 멈춘 것처럼 보이던 문제
         os.environ["GEMINI_API_KEY"] = "test-not-a-key"
         self.g.client.cache_clear()
